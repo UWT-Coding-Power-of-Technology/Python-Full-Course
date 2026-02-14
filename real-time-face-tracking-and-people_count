@@ -1,0 +1,149 @@
+import cv2
+import numpy as np
+from flask import Flask, render_template_string, request, jsonify
+import base64
+import os
+
+app = Flask(__name__)
+
+UPLOAD_FOLDER = 'real_time_color_filter_project/images'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+def create_test_image():
+    img = np.ones((600, 800, 3), dtype=np.uint8) * 255
+    cv2.rectangle(img, (50, 50), (750, 550), (200, 200, 200), -1)
+    cv2.putText(img, "Upload an Image to Start", (150, 300), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (50, 50, 50), 2)
+    return img
+
+def image_to_base64(img):
+    _, buffer = cv2.imencode('.jpg', img)
+    return base64.b64encode(buffer).decode('utf-8')
+
+def apply_filters(image, r_scale, g_scale, b_scale):
+    filtered = image.copy().astype(np.float32)
+    filtered[:, :, 0] *= b_scale
+    filtered[:, :, 1] *= g_scale
+    filtered[:, :, 2] *= r_scale
+    filtered = np.clip(filtered, 0, 255).astype(np.uint8)
+
+    gray = cv2.cvtColor(filtered, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
+
+    for (x, y, w, h) in faces:
+        cv2.rectangle(filtered, (x, y), (x + w, y + h), (255, 0, 0), 2)
+    
+    cv2.putText(filtered, f'People Count: {len(faces)}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+    return filtered
+
+@app.route('/')
+def index():
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Real-Time Face & Color Studio</title>
+        <style>
+            body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; max-width: 1000px; margin: 0 auto; padding: 20px; }
+            .container { background: #1e1e1e; padding: 30px; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+            h1 { color: #4CAF50; text-align: center; }
+            .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+            .control-group { background: #252525; padding: 15px; border-radius: 10px; }
+            label { display: block; margin-bottom: 10px; color: #81c784; }
+            input[type="range"] { width: 100%; accent-color: #4CAF50; }
+            .preview-area { text-align: center; margin-top: 30px; }
+            #preview { max-width: 100%; border-radius: 10px; border: 2px solid #333; }
+            .btn { background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; transition: 0.3s; }
+            .btn:hover { background: #45a049; }
+            .upload-section { margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 20px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎨 Real-Time Face & Color Studio</h1>
+            <div class="upload-section">
+                <input type="file" id="fileInput" accept="image/*" class="btn">
+                <button onclick="uploadImage()" class="btn">Load Image</button>
+            </div>
+            <div class="controls">
+                <div class="control-group">
+                    <label>Red Intensity: <span id="rVal">1.0</span></label>
+                    <input type="range" id="rRange" min="0" max="2" step="0.1" value="1" oninput="updateFilters()">
+                </div>
+                <div class="control-group">
+                    <label>Green Intensity: <span id="gVal">1.0</span></label>
+                    <input type="range" id="gRange" min="0" max="2" step="0.1" value="1" oninput="updateFilters()">
+                </div>
+                <div class="control-group">
+                    <label>Blue Intensity: <span id="bVal">1.0</span></label>
+                    <input type="range" id="bRange" min="0" max="2" step="0.1" value="1" oninput="updateFilters()">
+                </div>
+                <div class="control-group" style="display:flex; align-items:center; justify-content:center;">
+                    <button onclick="saveImage()" class="btn">💾 Save Final Image</button>
+                </div>
+            </div>
+            <div class="preview-area">
+                <img id="preview" src="/placeholder">
+            </div>
+        </div>
+        <script>
+            async function uploadImage() {
+                const file = document.getElementById('fileInput').files[0];
+                if (!file) return;
+                const formData = new FormData();
+                formData.append('file', file);
+                const resp = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+                document.getElementById('preview').src = 'data:image/jpeg;base64,' + data.image;
+            }
+            async function updateFilters() {
+                const r = document.getElementById('rRange').value;
+                const g = document.getElementById('gRange').value;
+                const b = document.getElementById('bRange').value;
+                document.getElementById('rVal').innerText = r;
+                document.getElementById('gVal').innerText = g;
+                document.getElementById('bVal').innerText = b;
+                const resp = await fetch('/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ r, g, b })
+                });
+                const data = await resp.json();
+                document.getElementById('preview').src = 'data:image/jpeg;base64,' + data.image;
+            }
+            function saveImage() {
+                const link = document.createElement('a');
+                link.href = document.getElementById('preview').src;
+                link.download = 'modified_image.jpg';
+                link.click();
+            }
+        </script>
+    </body>
+    </html>
+    """)
+
+@app.route('/placeholder')
+def placeholder():
+    img = create_test_image()
+    return f"data:image/jpeg;base64,{image_to_base64(img)}"
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    file = request.files['file']
+    path = os.path.join(UPLOAD_FOLDER, 'current.jpg')
+    file.save(path)
+    img = cv2.imread(path)
+    return jsonify({'image': image_to_base64(img)})
+
+@app.route('/process', methods=['POST'])
+def process():
+    data = request.json
+    path = os.path.join(UPLOAD_FOLDER, 'current.jpg')
+    img = cv2.imread(path) if os.path.exists(path) else create_test_image()
+    if img is None: img = create_test_image()
+    filtered = apply_filters(img, float(data['r']), float(data['g']), float(data['b']))
+    return jsonify({'image': image_to_base64(filtered)})
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000)
