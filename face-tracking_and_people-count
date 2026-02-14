@@ -1,0 +1,62 @@
+# Real-Time Image Processing Demo (Replit Friendly)
+# Loads an image, rotates it, adjusts brightness,
+# crops safely, and saves preview/output files.
+
+import cv2
+import matplotlib.pyplot as plt
+import os
+
+# ---------- SETTINGS ----------
+INPUT_FILE = "input.jpg"
+OUTPUT_FILE = "output.jpg"
+PREVIEW_FILE = "preview.png"
+ROTATION_ANGLE = 15
+BRIGHTNESS_BETA = 40
+
+# ---------- LOAD IMAGE ----------
+image = cv2.imread(INPUT_FILE)
+
+if image is None:
+    print(" Error: input.jpg not found in project folder")
+    exit()
+
+print("Image loaded successfully")
+
+# ---------- ROTATE IMAGE ----------
+(h, w) = image.shape[:2]
+center = (w // 2, h // 2)
+
+rotation_matrix = cv2.getRotationMatrix2D(center, ROTATION_ANGLE, 1.0)
+rotated = cv2.warpAffine(image, rotation_matrix, (w, h))
+
+print("Rotation applied")
+
+# ---------- ADJUST BRIGHTNESS ----------
+bright = cv2.convertScaleAbs(rotated, alpha=1, beta=BRIGHTNESS_BETA)
+print("Brightness adjusted")
+
+# ---------- SAFE CROP ----------
+crop_height = min(300, h)
+crop_width = min(300, w)
+
+cropped = bright[0:crop_height, 0:crop_width]
+print("Image cropped")
+
+# ---------- SAVE OUTPUT ----------
+cv2.imwrite(OUTPUT_FILE, cropped)
+print(f"Saved processed image → {OUTPUT_FILE}")
+
+# ---------- CREATE PREVIEW ----------
+cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+
+plt.imshow(cropped_rgb)
+plt.axis("off")
+plt.savefig(PREVIEW_FILE, bbox_inches="tight", pad_inches=0)
+
+print(f" Preview saved → {PREVIEW_FILE}")
+
+# ---------- FINAL STATUS ----------
+if os.path.exists(PREVIEW_FILE):
+    print("Working")
+else:
+    print("Error")
